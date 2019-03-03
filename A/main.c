@@ -2,7 +2,7 @@
  * Построчная обработка текста с удалением групп повторяющихся пробелов.
  * 
  * void strip_lines(char **lines, size_t n);
- * Процедура обработки должан быть оформлена в виде отдельной функции, которой
+ * Процедура обработки должна быть оформлена в виде отдельной функции, которой
  * подаётся на вход массив строк, выделенных в динамической памяти, и его
  * длина. На выход функция должна возвращать массив обработанных строк.
  */
@@ -11,7 +11,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define STD_BUF_SIZE 256
+#define STD_BUF_SIZE 1024
 #define STD_BUF_SIZE_MULT 2
 
 void strip_line(char *line);
@@ -49,18 +49,18 @@ void strip_line(char *line) {
 }
 
 void strip_lines(char **lines, size_t n) {
-	for (int i = 0; i != n; ++i)
+	for (size_t i = 0; i != n; ++i)
 		strip_line(lines[i]);
 }
 
 void print_lines(char **lines, size_t n) {
-	for (int i = 0; i != n; ++i)
+	for (size_t i = 0; i != n; ++i)
 		printf("%s", lines[i]);
 }
 
 
 void delete_lines(char **lines, size_t n) {
-	for (int i = 0; i != n; ++i)
+	for (size_t i = 0; i != n; ++i)
 		free(lines[i]);
 	free(lines);
 }
@@ -78,6 +78,7 @@ char *read_line(void) {
 	}
 
 	char *peol;
+	// maybe line > STD_BUF_SIZE
 	while (!(peol = strchr(buf, '\n'))) {
 		char *buf2 = malloc(buf_size * sizeof (char));
 		if (!buf2) {
@@ -92,6 +93,7 @@ char *read_line(void) {
 				peol = strchr(buf, '\0') - 1;
 				break;
 			}
+			// else ferror(stdin)
 			free(buf);
 			return NULL;
 		}
@@ -109,6 +111,7 @@ char *read_line(void) {
 		free(buf2);
 	}
 
+	// fit line
 	buf_size = (size_t) (peol - buf) + 2;
 	char *new_buf = realloc(buf, buf_size * sizeof (char));
 	if (!new_buf) {
