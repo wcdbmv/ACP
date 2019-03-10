@@ -10,6 +10,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <assert.h>
 
 #define STD_BUF_SIZE 1024
 #define STD_BUF_SIZE_MULT 2
@@ -35,6 +36,7 @@ int main(void) {
 }
 
 void strip_line(char *line) {
+	assert(line);
 	char *run = line;
 	while (*run) {
 		if (*run == ' ') {
@@ -93,7 +95,7 @@ char *read_line(void) {
 				peol = strchr(buf, '\0') - 1;
 				break;
 			}
-			// else ferror(stdin)
+			// else — ferror(stdin)
 			free(buf);
 			return NULL;
 		}
@@ -124,6 +126,7 @@ char *read_line(void) {
 }
 
 char **read_lines(size_t *n) {
+	assert(n);
 	size_t buf_size = STD_BUF_SIZE;
 	char **buf = malloc(buf_size * sizeof (char *));
 	if (!buf)
@@ -157,6 +160,7 @@ char **read_lines(size_t *n) {
 		return buf;
 	}
 
+	// else — ferror(stdin)
 	delete_lines(buf, *n);
 	return NULL;
 }
