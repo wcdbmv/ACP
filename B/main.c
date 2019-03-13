@@ -231,7 +231,7 @@ data_t tail_sub(data_t sign, data_t d) { return sign * d; }
 
 #pragma GCC diagnostic pop
 
-/* Скалдывает или вычитает вектора */
+/* Складывает или вычитает вектора */
 error_t _add_vectors(const vector_t *a, const vector_t *b, vector_t *c, add_ft base, add_ft tail) {
 	assert(a && b && c && base && tail);
 	size_t max_dimension, min_dimension;
