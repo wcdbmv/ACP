@@ -38,12 +38,12 @@ int main(void) {
 
 	char **corrected_text = remove_extra_whitespaces_in_text(
 			(const char **) raw_text, n);
+	delete_text(raw_text, n);
 	if (!corrected_text)
 		return shutdown_with_error();
 
 	print_text((const char **) corrected_text, n);
 	delete_text(corrected_text, n);
-	delete_text(raw_text, n);
 }
 
 char *remove_extra_whitespaces_in_line(const char *line) {
