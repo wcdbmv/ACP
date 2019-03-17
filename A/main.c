@@ -1,7 +1,7 @@
 /*
  * Построчная обработка текста с удалением групп повторяющихся пробелов.
  * 
- * void strip_lines(char **lines, size_t n);
+ * char **remove_extra_whitespaces_in_text(const char **text, size_t n);
  * Процедура обработки должна быть оформлена в виде отдельной функции, которой
  * подаётся на вход массив строк, выделенных в динамической памяти, и его
  * длина. На выход функция должна возвращать массив обработанных строк.
@@ -14,156 +14,189 @@
 #include <stdlib.h>
 #include <string.h>
 #include <assert.h>
+#include <stdbool.h>
 
+#define STD_CHUNK_SIZE 64
 #define STD_BUF_SIZE 1024
 #define STD_BUF_SIZE_MULT 2
 
-void strip_line(char *line);
-void strip_lines(char **lines, size_t n);
-void print_lines(char **lines, size_t n);
-void delete_lines(char **lines, size_t n);
+char *remove_extra_whitespaces_in_line(const char *line);
+char **remove_extra_whitespaces_in_text(const char **text, size_t n);
+void print_text(const char **text, size_t n);
+void delete_text(char **text, size_t n);
 char *read_line(void);
-char **read_lines(size_t *n);
+char **read_text(size_t *n);
+bool handle_realloc_line_error(char **line, size_t size);
+bool handle_realloc_text_error(char ***text, size_t size, size_t n);
+int shutdown_with_error(void);
 
 int main(void) {
 	size_t n;
-	char **lines = read_lines(&n);
-	if (!lines) {
-		puts("[error]");
-		return EXIT_SUCCESS;
-	}
+	char **raw_text = read_text(&n);
+	if (!raw_text)
+		return shutdown_with_error();
 
-	strip_lines(lines, n);
-	print_lines(lines, n);
-	delete_lines(lines, n);
+	char **corrected_text = remove_extra_whitespaces_in_text(
+			(const char **) raw_text, n);
+	if (!corrected_text)
+		return shutdown_with_error();
+
+	print_text((const char **) corrected_text, n);
+	delete_text(corrected_text, n);
+	delete_text(raw_text, n);
 }
 
-void strip_line(char *line) {
+char *remove_extra_whitespaces_in_line(const char *line) {
 	assert(line);
-	char *run = line;
-	while (*run) {
-		if (*run == ' ') {
-			*line++ = *run++;
-			while (*run == ' ')
-				++run;
+
+	const size_t size = strlen(line) + 1;
+	char *corrected_line = malloc(size * sizeof *corrected_line);
+	if (!corrected_line)
+		return NULL;
+
+	char *run = corrected_line;
+	while (*line) {
+		if (*line == ' ') {
+			*run++ = *line++;
+			while (*line == ' ')
+				++line;
 		}
 		else
-			*line++ = *run++;
+			*run++ = *line++;
 	}
-	*line = '\0';
+	*run = '\0';
+
+	const size_t new_size = run - corrected_line + 1;
+	if (new_size < size) {
+		char *tmp = realloc(corrected_line, new_size * sizeof *tmp);
+		if (!tmp) {
+			free(corrected_line);
+			return NULL;
+		}
+		corrected_line = tmp;
+	}
+	return corrected_line;
 }
 
-void strip_lines(char **lines, size_t n) {
+char **remove_extra_whitespaces_in_text(const char **text, size_t n) {
+	assert(text && n);
+
+	char **corrected_text = malloc(n * sizeof *corrected_text);
+	if (!corrected_text)
+		return NULL;
+
 	for (size_t i = 0; i != n; ++i)
-		strip_line(lines[i]);
+		if (!(corrected_text[i] = remove_extra_whitespaces_in_line(text[i])))
+			delete_text(corrected_text, i);
+
+	return corrected_text;
 }
 
-void print_lines(char **lines, size_t n) {
+void print_text(const char **text, size_t n) {
+	assert(text);
 	for (size_t i = 0; i != n; ++i)
-		printf("%s", lines[i]);
+		printf("%s", text[i]);
 }
 
 
-void delete_lines(char **lines, size_t n) {
+void delete_text(char **text, size_t n) {
+	assert((text && n) || !n);
 	for (size_t i = 0; i != n; ++i)
-		free(lines[i]);
-	free(lines);
+		free(text[i]);
+	free(text);
 }
 
-/* simplier and better than getline(): returns fit line */
+/* returns amount of readed chars */
+size_t read_chunk(char *line) {
+	assert(line);
+	char chunk[STD_CHUNK_SIZE];
+	if (!fgets(chunk, STD_CHUNK_SIZE, stdin))
+		return 0;
+	const size_t len = strlen(chunk);
+	memcpy(line, chunk, (len + 1) * sizeof *line);
+	return len;
+}
+
+/* if error — frees memory, sets pointer to NULL and returns true */
+bool handle_realloc_line_error(char **pline, size_t size) {
+	assert(pline && *pline && size);
+	char *tmp = realloc(*pline, size);
+	if (!tmp)
+		free(*pline);
+	*pline = tmp;
+	return !tmp;
+}
+
 char *read_line(void) {
 	size_t buf_size = STD_BUF_SIZE;
-	char *buf = malloc(buf_size * sizeof (char));
+	char *buf = malloc(buf_size * sizeof *buf);
 	if (!buf)
 		return NULL;
 
-	if (!fgets(buf, buf_size - 1, stdin)) {
-		free(buf);
-		return NULL;
+	size_t offset = 0;
+	while (true) {
+		if (offset + STD_CHUNK_SIZE - 1 > buf_size) {
+			buf_size *= STD_BUF_SIZE_MULT;
+			if (handle_realloc_line_error(&buf, buf_size * sizeof *buf))
+				return NULL;
+		}
+		const size_t len = read_chunk(buf + offset);
+		offset += len;
+		if (len + 1 != STD_CHUNK_SIZE || buf[offset] == '\n')
+			break;
 	}
 
-	char *peol;
-	// maybe line > STD_BUF_SIZE
-	while (!(peol = strchr(buf, '\n'))) {
-		char *buf2 = malloc(buf_size * sizeof (char));
-		if (!buf2) {
-			free(buf);
+	if (!offset) {
+		if (handle_realloc_line_error(&buf, 1 * sizeof *buf))
 			return NULL;
-		}
-
-		if (!fgets(buf2, buf_size - 1, stdin)) {
-			free(buf2);
-			if (feof(stdin)) {
-				// here should have been the EOL if missing
-				peol = strchr(buf, '\0') - 1;
-				break;
-			}
-			// else — ferror(stdin)
-			free(buf);
-			return NULL;
-		}
-
-		buf_size *= STD_BUF_SIZE_MULT;
-		char *new_buf = realloc(buf, buf_size * sizeof (char));
-		if (!new_buf) {
-			free(buf2);
-			free(buf);
-			return NULL;
-		}
-
-		buf = new_buf;
-		strncat(buf, buf2, buf_size);
-		free(buf2);
+		*buf = '\0';
 	}
+	else if (offset + 1 < buf_size)
+		handle_realloc_line_error(&buf, buf_size * sizeof *buf);
 
-	// fit line
-	buf_size = (size_t) (peol - buf) + 2;
-	char *new_buf = realloc(buf, buf_size * sizeof (char));
-	if (!new_buf) {
-		free(buf);
-		return NULL;
-	}
-
-	buf = new_buf;
 	return buf;
 }
 
-char **read_lines(size_t *n) {
+/* if error — deletes text, sets pointer to NULL and returns true */
+bool handle_realloc_text_error(char ***ptext, size_t size, size_t n) {
+	assert(ptext && *ptext && size);
+	char **new_text = realloc(*ptext, size);
+	if (!new_text)
+		delete_text(*ptext, n);
+	*ptext = new_text;
+	return !new_text;
+}
+
+char **read_text(size_t *n) {
 	assert(n);
 	size_t buf_size = STD_BUF_SIZE;
-	char **buf = malloc(buf_size * sizeof (char *));
+	char **buf = malloc(buf_size * sizeof *buf);
 	if (!buf)
 		return NULL;
 
 	*n = 0;
 	while ((buf[*n] = read_line())) {
-		if (++*n == buf_size) {
+		if (!*buf[(*n)++])
+			break;
+		if (*n == buf_size) {
 			buf_size *= STD_BUF_SIZE_MULT;
-			char **new_buf = realloc(buf, buf_size * sizeof (char *));
-			if (!new_buf) {
-				delete_lines(buf, *n);
+			if (handle_realloc_text_error(&buf, buf_size * sizeof *buf, *n))
 				return NULL;
-			}
-
-			buf = new_buf;
 		}
 	}
 
-	if (feof(stdin)) {
-		if (*n && *n < buf_size) {
-			char **new_buf = realloc(buf, *n * sizeof (char *));
-			if (!new_buf) {
-				delete_lines(buf, *n);
-				return NULL;
-			}
-
-			buf = new_buf;
-		}
-
-		return buf;
+	if (ferror(stdin)) {
+		delete_text(buf, *n);
+		return NULL;
 	}
 
-	// else — ferror(stdin)
-	delete_lines(buf, *n);
-	return NULL;
+	if (*n && *n < buf_size)
+		handle_realloc_text_error(&buf, *n * sizeof *buf, *n);
+
+	return buf;
+}
+
+int shutdown_with_error(void) {
+	puts("[error]");
+	return EXIT_SUCCESS;
 }
