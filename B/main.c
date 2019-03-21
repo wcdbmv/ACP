@@ -19,7 +19,6 @@
 // Функции вида `void swrite_TYPE_with(char **run, const TYPE *data, char c);` помимо этого
 // записывают ещё и символ `c`.
 
-#define _GNU_SOURCE
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -96,10 +95,9 @@ error_t sread_number(const char **run, data_t *number, size_t skip) {
 static inline void write_number(data_t number) { printf(FORMAT_DATA_T, number); }
 static inline void write_number_with(data_t number, char c) { printf(FORMAT_DATA_T "%c", number, c); }
 
-void swrite_number(char **run, data_t number) {
+static inline void swrite_number(char **run, data_t number) {
 	assert(run && *run);
-	size_t size = sprintf(*run, FORMAT_DATA_T, number);
-	*run += size;
+	*run += sprintf(*run, FORMAT_DATA_T, number);
 }
 
 void swrite_number_with(char **run, data_t number, char c) {
@@ -213,7 +211,7 @@ void swrite_vector_with(char **run, const vector_t *vector, char c) {
 /* векторов, знак для операции вычитания для большей размерности (если размерность вычитаемого   */
 /* больше, то его "хвост" помешается в результат с плюсом, если размерность вычитателя больше,   */
 /* то с минусом).                                                                                */
-static inline const data_t *max_min_dim(
+const data_t *max_min_dim(
 		const vector_t *a, const vector_t *b,
 		size_t *max_dimension, size_t *min_dimension,
 		data_t *sign) {
@@ -564,9 +562,8 @@ error_t multiply_operands(const operand_t *a, const operand_t *b, operand_t *c) 
 	if (a->type == NUMBER) {
 		if (b->type == VECTOR)
 				return multiply_vector(a->number, &b->vector, &c->vector);
-		return INVALID_FORMAT;
 	}
-	if (b->type == NUMBER)
+	else if (b->type == NUMBER)
 		return multiply_vector(b->number, &a->vector, &c->vector);
 	return INVALID_FORMAT;
 }
@@ -650,60 +647,64 @@ error_t calculate(const char *expr, vector_t *vector) {
 
 // ──── line ──────────────────────────────────────────────────────────────────────────────────────
 
-#define GETLINE_ERROR -1
+#define STD_CHUNK_SIZE 64
 
-char *read_line() {
-	char *line = NULL;
-	size_t n = 0;
-	if (getline(&line, &n, stdin) == GETLINE_ERROR) {
-		free(line);
-		return NULL;
-	}
-	char *peol = strchr(line, EOL);
-	if (peol)
-		*peol = EOS;
-	return line;
+/* returns amount of readed chars */
+size_t read_chunk(char *line) {
+	assert(line);
+	char chunk[STD_CHUNK_SIZE];
+	if (!fgets(chunk, STD_CHUNK_SIZE, stdin))
+		return 0;
+	const size_t len = strlen(chunk);
+	memcpy(line, chunk, (len + 1) * sizeof *line);
+	return len;
 }
 
-// TODO: refactor
-char *read_lines() {
+/* if error — frees memory, sets pointer to NULL and returns true */
+bool handle_realloc_line_error(char **pline, size_t size) {
+	assert(pline && *pline && size);
+	char *tmp = realloc(*pline, size);
+	if (!tmp)
+		free(*pline);
+	*pline = tmp;
+	return !tmp;
+}
+
+/* reads all stdin in string */
+char *read_line(void) {
 	size_t buf_size = STD_BUF_SIZE;
-	size_t size = 0;
-	char *line, *lines = malloc(buf_size);
-	if (!lines)
+	char *buf = malloc(buf_size * sizeof *buf);
+	if (!buf)
 		return NULL;
-	*lines = EOS;
-	while ((line = read_line())) {
-		const size_t add = strlen(line);
-		const size_t new_size = size + add;
-		if (new_size + 1 > buf_size) {
-			while (new_size + 1 > (buf_size *= STD_BUF_SIZE_MULT))
-				;
-			char *tmp = realloc(lines, buf_size);
-			if (!tmp)
-				goto free_line;
-			lines = tmp;
-		}
-		strncat(lines + size, line, add);
-		size = new_size;
-		free(line);
-	}
-	if (!size)
-		goto free_lines;
-	return lines;
 
-free_line:
-	free(line);
-free_lines:
-	free(lines);
-	return NULL;
+	size_t offset = 0;
+	do {
+		if (offset + STD_CHUNK_SIZE - 1 > buf_size) {
+			buf_size *= STD_BUF_SIZE_MULT;
+			if (handle_realloc_line_error(&buf, buf_size * sizeof *buf))
+				return NULL;
+		}
+		offset += read_chunk(buf + offset);
+	} while (!feof(stdin));
+
+	// empty input is an error
+	if (!offset) {
+		free(buf);
+		return NULL;
+	}
+
+	if (offset + 1 < buf_size)
+		handle_realloc_line_error(&buf, buf_size * sizeof *buf);
+
+	return buf;
 }
 
+/* removes spaces */
 void collapse(char *line) {
 	assert(line);
 	char *run = line;
 	while (*run) {
-		while (*run == WHITESPACE)
+		while (*run == WHITESPACE || *run == EOL)
 			++run;
 		*line++ = *run++;
 	}
@@ -720,7 +721,7 @@ static inline int _shutdown_with_error(void) {
 }
 
 int main(void) {
-	char *infix_expr = read_lines();
+	char *infix_expr = read_line();
 	if (!infix_expr)
 		return _shutdown_with_error();
 	collapse(infix_expr);
